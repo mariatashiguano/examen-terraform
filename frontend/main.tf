@@ -161,9 +161,9 @@ resource "aws_autoscaling_group" "mi_asg" {
   vpc_zone_identifier = data.aws_subnets.mis_subnets.ids
   target_group_arns   = [aws_lb_target_group.mi_tg.arn]
   
-  desired_capacity    = 2
-  max_size            = 10
-  min_size            = 2
+  desired_capacity    = 3
+  max_size            = 4
+  min_size            = 3
   
   launch_template {
     id      = aws_launch_template.mi_template.id
