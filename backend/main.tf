@@ -1,11 +1,15 @@
 # backend/main.tf
 
-# 1. CONFIGURACIÓN DEL ESTADO
+# ---------------------------------------------------------
+# 1. CONFIGURACIÓN DEL ESTADO (Terraform)
+# ---------------------------------------------------------
 terraform {
+  # Usamos la nube de HashiCorp en lugar de S3
   cloud {
     organization = "ORG_PRUEBA" 
+
     workspaces {
-      name = "examen-backend" 
+      name = "examen_backend" 
     }
   }
 }
@@ -14,14 +18,18 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# ---------------------------------------------------------
 # 2. VARIABLES
+# ---------------------------------------------------------
 variable "commit_hash" {
-  description = "Hash del commit"
+  description = "Hash del commit para forzar actualizacion del Launch Template"
   type        = string
   default     = "latest"
 }
 
+# ---------------------------------------------------------
 # 3. BUSQUEDA DE DATOS
+# ---------------------------------------------------------
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -46,9 +54,11 @@ data "aws_subnets" "mis_subnets" {
   }
 }
 
+# ---------------------------------------------------------
 # 4. SEGURIDAD
+# ---------------------------------------------------------
 resource "aws_security_group" "alb_sg" {
-  name        = "alb-sg-back"
+  name        = "alb-security-group-pro"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -66,7 +76,7 @@ resource "aws_security_group" "alb_sg" {
 }
 
 resource "aws_security_group" "instancia_sg" {
-  name        = "inst-sg-back"
+  name        = "instancias-security-group-pro"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -89,19 +99,26 @@ resource "aws_security_group" "instancia_sg" {
   }
 }
 
-# 5. COMPUTO (Docker Backend)
+# ---------------------------------------------------------
+# 5. COMPUTO (Launch Template con Git Clone)
+# ---------------------------------------------------------
 resource "aws_launch_template" "mi_template" {
-  name_prefix   = "lt-backend-"
+  name_prefix   = "lt-git-build-"
   image_id      = data.aws_ami.al2023.id
   instance_type = "t3.micro"
+  
+  # ⚠️ CAMBIO 2: VERIFICA EL NOMBRE DE TU KEY PAIR
   key_name      = "Pr1"
 
   vpc_security_group_ids = [aws_security_group.instancia_sg.id]
 
   user_data = base64encode(<<-EOF
               #!/bin/bash
-              # Commit Hash: ${var.commit_hash}
               
+              # --- CONTROL DE VERSION (No borrar) ---
+              # Commit Hash: ${var.commit_hash}
+              # --------------------------------------
+
               dnf update -y
               dnf install -y docker git
               systemctl start docker
@@ -111,24 +128,23 @@ resource "aws_launch_template" "mi_template" {
               mkdir -p /home/ec2-user/app
               cd /home/ec2-user/app
 
-              # CLONAR EL MONOREPO
+              # ⚠️ CAMBIO 3: PON LA URL HTTPS DE TU REPO
               git clone https://github.com/mariatashiguano/examen-terraform.git .
               
-              # --- ENTRAR A LA CARPETA BACKEND ---
-              cd backend
-              
-              # Construir Docker
-              docker build -t backend .
+              # Construir Docker usando el Dockerfile que acabamos de bajar
+              docker build -t mi-web .
               
               # Correr el contenedor
-              docker run -d -p 80:80 --restart always --name backend-container backend
+              docker run -d -p 80:80 --restart always --name web-container mi-web
               EOF
               )
 }
 
+# ---------------------------------------------------------
 # 6. LOAD BALANCER & ASG
+# ---------------------------------------------------------
 resource "aws_lb" "mi_alb" {
-  name               = "alb-back"
+  name               = "alb-final-pro"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
@@ -136,7 +152,7 @@ resource "aws_lb" "mi_alb" {
 }
 
 resource "aws_lb_target_group" "mi_tg" {
-  name     = "tg-back"
+  name     = "tg-final-pro"
   port     = 80
   protocol = "HTTP"
   vpc_id   = data.aws_vpc.default.id
@@ -157,7 +173,7 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_autoscaling_group" "mi_asg" {
-  name                = "asg-back"
+  name                = "asg-final-pro"
   vpc_zone_identifier = data.aws_subnets.mis_subnets.ids
   target_group_arns   = [aws_lb_target_group.mi_tg.arn]
   
@@ -174,9 +190,8 @@ resource "aws_autoscaling_group" "mi_asg" {
   health_check_grace_period = 300
 }
 
-# --- ESTA ES LA POLÍTICA QUE FALTABA Y TÚ AGREGASTE ---
 resource "aws_autoscaling_policy" "cpu_policy" {
-  name                   = "politica-cpu-back"
+  name                   = "politica-cpu-10"
   autoscaling_group_name = aws_autoscaling_group.mi_asg.name
   policy_type            = "TargetTrackingScaling"
   target_tracking_configuration {
