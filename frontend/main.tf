@@ -3,7 +3,7 @@
 # 1. CONFIGURACIÓN DEL ESTADO
 terraform {
   cloud {
-    organization = "ORG_SPRUEBA" 
+    organization = "ORG_PRUEBA" 
     workspaces {
       name = "examen-frontend" # <--- WORKSPACE DEL FRONT
     }
